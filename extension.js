@@ -162,7 +162,7 @@ class AllIPAddressIndicator extends PanelMenu.Button{
     _toggleView(){
       //console.log("Updating label for all-ip extension")
       selected_interface[0] = selected_interface[1].includes('IPv4Address') ? (('IPv6Address' in dictofinterfaces[selected_interface[0]]) ? selected_interface[0]:listofinterfaces[(listofinterfaces.indexOf(selected_interface[0])+1==listofinterfaces.length) ? 0 : listofinterfaces.indexOf(selected_interface[0])+1]) : listofinterfaces[(listofinterfaces.indexOf(selected_interface[0])+1==listofinterfaces.length) ? 0 : listofinterfaces.indexOf(selected_interface[0])+1];
-      selected_interface[1] = ('IPv4Address' in dictofinterfaces[selected_interface[0]]) ? (selected_interface[1].includes('IPv4Address') ? (('IPv6Address' in dictofinterfaces[selected_interface[0]]) ? 'IPv6Address':'IPv4Address') : 'IPv4Address') : 'IPv6Address';
+      selected_interface[1] = ('IPv4Address' in dictofinterfaces[selected_interface[0]]) ? (selected_interface[1].includes('IPv4Address') ? (('IPv6Address' in dictofinterfaces[selected_interface[0]]) ? (this.buttonText.get_text().includes(dictofinterfaces[selected_interface[0]][selected_interface[1]]) ? 'IPv6Address':'IPv4Address'):'IPv4Address') : 'IPv4Address') : 'IPv6Address';
 
       this.buttonText.set_text( selected_interface[0]+ '_' + selected_interface[1].replaceAll("Address","") + ": " + dictofinterfaces[selected_interface[0]][selected_interface[1]] );
       // enable this if you feel like you need to force updates, otherwise this is not necessary anymore
