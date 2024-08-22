@@ -9,8 +9,10 @@ import Gio from 'gi://Gio';
 import GObject from 'gi://GObject';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
-// Start with tun0 address as default
-var type=1;
+// Start with tun0 interface as default as a preference
+var selected_interface = ['tun0','IPv4Address'];
+var listofinterfaces = [];
+var dictofinterfaces = {};
 
 function executeShellCommand(argv) {
     let flags = (Gio.SubprocessFlags.STDOUT_PIPE |
@@ -34,140 +36,105 @@ function executeShellCommand(argv) {
                 resolve(stdout.trim());
             } catch (e) {
                 reject(e);
-                return " None";
             }
         });
     });
 }
 
-async function _get_VPN_address(Panel_Object) {
-    var vpn0_result = ' None';
-    var tun0_result = ' None';
-    // pull the ip address for tun0 and vpn0
-    log("getting vpn0");
-    try {
-         vpn0_result = await executeShellCommand(['ip', '-brief', '-4', 'addr', 'show', 'dev', 'vpn0']);
-         
-         // Success
-         log("vpn0 Success");
-    } catch (e) {
-        // Error
-        logError(e);
-        vpn0_result = ' None';
-    }
-    log("getting tun0");
-    try {
-         tun0_result = await executeShellCommand(['ip', '-brief', '-4', 'addr', 'show', 'dev', 'tun0']);
-         
-         // Success
-         log("tun0 Success");
-    } catch (e) {
-        // Error
-        logError(e);
-        tun0_result = ' None';
-    }
-
-    var Re = new RegExp(/ ([0-9]+([.][0-9]+)+)/g);
-    var matches = vpn0_result.match(Re);
-    var vpn0IpAddress;
-    if (matches) {
-        vpn0IpAddress = matches[0].split(' ')[1];
-    } else {
-        vpn0IpAddress = ' None';
-    }
-    matches = tun0_result.match(Re);
-    var tun0IpAddress;
-    if (matches) {
-        tun0IpAddress = matches[0].split(' ')[1];
-    } else {
-        tun0IpAddress = ' None';
-    }
-    var VPNIpAddress = ' None';
-    // checks both interfaces if they are set then it will append both, else it will choose one; if both are none then it is None.
-    VPNIpAddress = vpn0IpAddress.includes("None") ? (tun0IpAddress.includes("None") ? " None" : tun0IpAddress) : (tun0IpAddress.includes("None") ? vpn0IpAddress : (vpn0IpAddress + ", "+tun0IpAddress))
-    Panel_Object.buttonText.set_text("VPN: " + VPNIpAddress);
-}
-
-async function _get_lan_ip4(Panel_Object) {
-    // Ask the IP stack what route would be used to reach 1.1.1.1 (Cloudflare DNS)
-    // Specifically, what src would be used for the 1st hop?
-    var command_output = ' None';
-    try {
-         command_output = await executeShellCommand(['ip', '-brief', '-4', 'addr', 'show', 'dev', 'eth0']);
-         
-         // Success
-         log("Lan Success");
-    } catch (e) {
-        // Error
-        logError(e);
-        command_output = ' None';
-    }
-
-    // Output of the "ip route" command will be a string
-    // "eth0             UP             192.168.100.100/24"
-    var Re = new RegExp(/ ([0-9]+([.][0-9]+)+)/g);
-    var matches = command_output.match(Re);
-    var lanIpAddress;
-    if (matches) {
-        lanIpAddress = matches[0];
-    } else {
-        lanIpAddress = ' None';
-    }
-
-    Panel_Object.buttonText.set_text("LAN: " + lanIpAddress);
-}
-
-async function _get_lan_ip6(Panel_Object) {
-    var command_output = ' None';
-    try {
-         command_output = await executeShellCommand(['ip', '-brief', '-6', 'addr', 'show', 'dev', 'eth0']);
-         
-         // Success
-         log("Success");
-    } catch (e) {
-        // Error
-        logError(e);
-        command_output = ' None';
-    }
-
-    // Output of the "ip" command will be a string
-    // "eth0             UP             fa4e::add:7e55:1976:1/64"
-    var Re = new RegExp(/ ([:A-Za-z0-9]+(:[A-Za-z0-9]+)+)/g);
-    var matches = command_output.match(Re);
-    var lanIpv6Address;
-    if (matches) {
-        lanIpv6Address = matches[0];
-    } else {
-        lanIpv6Address = ' None';
-    }
-    Panel_Object.buttonText.set_text("IPv6: "+ lanIpv6Address)
-}
-
-async function _get_wan_ip4(Panel_Object) {
-    // Use the google dns servers to find the publip ip address used for requests
-    // Force a ipv4 conection, because ipv6 won't be NAT'ed
-    var command_output = ' None';
-    try {
-         command_output = await executeShellCommand(['dig', 'TXT', '+short', 'o-o.myaddr.l.google.com', '@ns1.google.com', '-4']);
-         
-         // Success
-         log("Success");
-    } catch (e) {
-        // Error
-        logError(e);
-        command_output = ' None';
-    }
-    var command_output_string = command_output.replace('"','').replace('"','').replace('\n','');
-    // Validate the result looks like an ipv4 address
-    var Re = new RegExp(/.*\..*\..*\..*/g);
-    var matches = command_output_string.match(Re);
-    var wanIpAddress;
-    if (matches) {
-        wanIpAddress = command_output_string;
-    } else {
-        wanIpAddress = ' None';
-    }
-    Panel_Object.buttonText.set_text("WAN: " + wanIpAddress);
+async function _update_interface_list(Panel_Object) {
+  var command_output = ' None';
+  listofinterfaces = [];
+  dictofinterfaces = {};
+  try {
+       command_output = await executeShellCommand(['ip', '-brief', 'addr']);
+       // Success
+       //log("Success");
+       command_output.split("\n").forEach(
+        // Output of the "ip" command will be a string
+        // "eth0             UP             192.168.100.100/24 ACAB::100:FFFF:feef:1234/64"
+        line => {
+          // Regex to grab the first 16 characters in the line; max interface name limit
+          var Re = new RegExp(/^.{16}/g);
+          var Interface_name = line.match(Re)[0].replaceAll(" ","");
+          if (Interface_name != 'lo') {
+            // Regex to grab the IPv4 Address
+            var Re = new RegExp(/([0-9]{1,3}([.][0-9]{1,3}){3})/g);
+            var matches = line.match(Re);
+            var IPv4Address;
+            if (matches) {
+                IPv4Address = matches[0].replaceAll(" ","");
+            }
+            // Regex to grab the IPv6 Address
+            var Re = new RegExp(/([A-Za-z0-9]{0,4}(:[A-Za-z0-9]{0,4}){2,8})/g);
+            var matches = line.match(Re);
+            var IPv6Address;
+            if (matches) {
+                IPv6Address = matches[0].replaceAll(" ","");
+            }
+            if (IPv4Address) {
+              if (!listofinterfaces.includes(Interface_name)) listofinterfaces.push(Interface_name);
+              (Interface_name in dictofinterfaces) ? (dictofinterfaces[Interface_name]['IPv4Address'] = IPv4Address) : (dictofinterfaces[Interface_name] = { "IPv4Address":IPv4Address });
+            }
+            if (IPv6Address) {
+              if (!listofinterfaces.includes(Interface_name)) listofinterfaces.push(Interface_name);
+              (Interface_name in dictofinterfaces) ? (dictofinterfaces[Interface_name]['IPv6Address'] = IPv6Address) : (dictofinterfaces[Interface_name] = { "IPv6Address":IPv6Address });
+            }
+          }
+        }
+      );
+  } catch (e) {
+      // Error
+      log("Failed to retrieve Interfaces and IP addresses");
+      logError(e);
+      command_output = 'None';
+      selected_interface = ['lo','IPv4'];
+      listofinterfaces = ['lo'];
+      dictofinterfaces['lo'] = { "IPv4Address": "127.0.0.1", "IPv6Address": "::1" }; // safely assume link-local exists and populate dictofinterfaces with something
+  }
+  command_output = 'None';
+  var wanIpv4Address;
+  try {
+      command_output = await executeShellCommand(['curl', '--max-time','5', '-4', 'icanhazip.com']);
+      var command_output_string = command_output.replace('"','').replace('"','').replace('\n','');
+      // Validate the result is an ipv4 address
+      var Re = new RegExp(/([0-9]{1,3}([.][0-9]{1,3}){3})/g);
+      var matches = command_output_string.match(Re);
+      if (matches) {
+        wanIpv4Address = matches[0];
+      }
+      // Success
+      //log("Success");
+  } catch (e) {
+      // Error
+      logError(e);
+  }
+  if (wanIpv4Address) {
+    if (!(listofinterfaces.includes('WAN'))) listofinterfaces.push('WAN');
+    ('WAN' in dictofinterfaces) ? (dictofinterfaces['WAN']['IPv4Address'] = wanIpv4Address) : (dictofinterfaces['WAN'] = { "IPv4Address":wanIpv4Address });
+  }
+  command_output = 'None';
+  var wanIpv6Address;
+  try {
+      command_output = await executeShellCommand(['curl', '--max-time','5', '-6', 'icanhazip.com']);
+      var command_output_string = command_output.replace('"','').replace('"','').replace('\n','');
+      // Validate the result is an ipv4 address
+      var Re = new RegExp(/([A-Za-z0-9]{0,4}(:[A-Za-z0-9]{0,4}){2,8})/g);
+      var matches = command_output_string.match(Re);
+      if (matches) {
+        wanIpv6Address = matches[0];
+      }
+      // Success
+      //log("Success");
+  } catch (e) {
+      // Error
+      logError(e);
+  }
+  if (wanIpv6Address) {
+    if (!(listofinterfaces.includes('WAN'))) listofinterfaces.push('WAN');
+    ('WAN' in dictofinterfaces) ? (dictofinterfaces['WAN']['IPv6Address'] = wanIpv6Address) : (dictofinterfaces['WAN'] = { "IPv6Address":wanIpv6Address });
+  }
+  selected_interface[0] = listofinterfaces.includes(selected_interface[0]) ? selected_interface[0] : listofinterfaces[0];
+  Panel_Object.buttonText.set_text( selected_interface[0]+ '_' + selected_interface[1].replaceAll("Address","") + ": " + dictofinterfaces[selected_interface[0]][selected_interface[1]] );
 }
 
 class AllIPAddressIndicator extends PanelMenu.Button{
@@ -185,25 +152,25 @@ class AllIPAddressIndicator extends PanelMenu.Button{
             y_align: Clutter.ActorAlign.CENTER
         });
         this.add_child(this.buttonText);
+        _update_interface_list(this).catch((e) => {
+            logError(e);
+            this.buttonText.set_text("Loading Error...");
+          });
         this._updateLabel();
     }
 
     _toggleView(){
-      console.log("Updating label for all-ip extension")
-      if (type===4) {
-        type=6;
-      } else if (type===6) {
-        type=0;
-      } else if (type===0){
-        type=1;
-      } else if (type===1){
-        type=4
-      }
-      this._updateLabel();
+      //console.log("Updating label for all-ip extension")
+      selected_interface[0] = selected_interface[1].includes('IPv4Address') ? (('IPv6Address' in dictofinterfaces[selected_interface[0]]) ? selected_interface[0]:listofinterfaces[(listofinterfaces.indexOf(selected_interface[0])+1==listofinterfaces.length) ? 0 : listofinterfaces.indexOf(selected_interface[0])+1]) : listofinterfaces[(listofinterfaces.indexOf(selected_interface[0])+1==listofinterfaces.length) ? 0 : listofinterfaces.indexOf(selected_interface[0])+1];
+      selected_interface[1] = ('IPv4Address' in dictofinterfaces[selected_interface[0]]) ? (selected_interface[1].includes('IPv4Address') ? (('IPv6Address' in dictofinterfaces[selected_interface[0]]) ? 'IPv6Address':'IPv4Address') : 'IPv4Address') : 'IPv6Address';
+
+      this.buttonText.set_text( selected_interface[0]+ '_' + selected_interface[1].replaceAll("Address","") + ": " + dictofinterfaces[selected_interface[0]][selected_interface[1]] );
+      // enable this if you feel like you need to force updates, otherwise this is not necessary anymore
+      //this._updateLabel();
     }
 
     _updateLabel(){
-        const refreshTime = 20 // in seconds
+        const refreshTime = 5 // in seconds
 
         if (this._timeout) {
                 GLib.source_remove(this._timeout);
@@ -211,28 +178,11 @@ class AllIPAddressIndicator extends PanelMenu.Button{
         }
         this._timeout = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, refreshTime, () => {this._updateLabel();});
         // Show the right format. 0 = WAN, 4 = IPv4, 6=IPv6
-        // Do it asynchronously
-        if (type===4) {
-          _get_lan_ip4(this).catch((e) => {
+        // update asynchronously every 5 seconds
+        _update_interface_list(this).catch((e) => {
             logError(e);
-            this.buttonText.set_text("LAN: Error...");
+            this.buttonText.set_text("Loading Error...");
           });
-        } else if (type===0) {
-          _get_wan_ip4(this).catch((e) => {
-            logError(e);
-            this.buttonText.set_text("WAN: Error...");
-          });
-        } else if (type===6){
-          _get_lan_ip6(this).catch((e) => {
-            logError(e);
-            this.buttonText.set_text("IPv6: Error...");
-          });
-        } else {
-          _get_VPN_address(this).catch((e) => {
-            logError(e);
-            this.buttonText.set_text("VPN: Error...");
-          });
-        }
     }
 
     _removeTimeout() {
