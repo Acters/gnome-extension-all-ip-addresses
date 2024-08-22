@@ -87,7 +87,7 @@ async function _update_interface_list(Panel_Object) {
       log("Failed to retrieve Interfaces and IP addresses");
       logError(e);
       command_output = 'None';
-      selected_interface = ['lo','IPv4'];
+      selected_interface = ['lo','IPv4Address'];
       listofinterfaces = ['lo'];
       dictofinterfaces['lo'] = { "IPv4Address": "127.0.0.1", "IPv6Address": "::1" }; // safely assume link-local exists and populate dictofinterfaces with something
   }
