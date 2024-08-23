@@ -47,8 +47,6 @@ async function _update_interface_list(Panel_Object) {
   dictofinterfaces = {};
   try {
        command_output = await executeShellCommand(['ip', '-brief', 'addr']);
-       // Success
-       //log("Success");
        command_output.split("\n").forEach(
         // Output of the "ip" command will be a string
         // "eth0             UP             192.168.100.100/24 ACAB::100:FFFF:feef:1234/64"
@@ -86,11 +84,8 @@ async function _update_interface_list(Panel_Object) {
       // Error
       log("Failed to retrieve Interfaces and IP addresses");
       logError(e);
-      command_output = 'None';
-      selected_interface = ['lo','IPv4Address'];
-      listofinterfaces = ['lo'];
-      dictofinterfaces['lo'] = { "IPv4Address": "127.0.0.1", "IPv6Address": "::1" }; // safely assume link-local exists and populate dictofinterfaces with something
   }
+  
   command_output = 'None';
   var wanIpv4Address;
   try {
@@ -112,19 +107,18 @@ async function _update_interface_list(Panel_Object) {
     if (!(listofinterfaces.includes('WAN'))) listofinterfaces.push('WAN');
     ('WAN' in dictofinterfaces) ? (dictofinterfaces['WAN']['IPv4Address'] = wanIpv4Address) : (dictofinterfaces['WAN'] = { "IPv4Address":wanIpv4Address });
   }
+  
   command_output = 'None';
   var wanIpv6Address;
   try {
       command_output = await executeShellCommand(['curl', '--max-time','5', '-6', 'icanhazip.com']);
       var command_output_string = command_output.replace('"','').replace('"','').replace('\n','');
-      // Validate the result is an ipv4 address
+      // Validate the result is an ipv6 address
       var Re = new RegExp(/([A-Za-z0-9]{0,4}(:[A-Za-z0-9]{0,4}){2,8})/g);
       var matches = command_output_string.match(Re);
       if (matches) {
         wanIpv6Address = matches[0];
       }
-      // Success
-      //log("Success");
   } catch (e) {
       // Error
       logError(e);
@@ -133,6 +127,14 @@ async function _update_interface_list(Panel_Object) {
     if (!(listofinterfaces.includes('WAN'))) listofinterfaces.push('WAN');
     ('WAN' in dictofinterfaces) ? (dictofinterfaces['WAN']['IPv6Address'] = wanIpv6Address) : (dictofinterfaces['WAN'] = { "IPv6Address":wanIpv6Address });
   }
+  
+  if (Object.keys(dictofinterfaces).length == 0) {
+    selected_interface = ['lo','IPv4Address'];
+    listofinterfaces = ['lo'];
+    dictofinterfaces['lo'] = { "IPv4Address": "127.0.0.1", "IPv6Address": "::1" }; // safely assume link-local exists and populate dictofinterfaces with something
+  }
+  
+  // Update Interface with new data and reset to first interface when an interface disappears
   selected_interface[0] = listofinterfaces.includes(selected_interface[0]) ? selected_interface[0] : listofinterfaces[0];
   Panel_Object.buttonText.set_text( selected_interface[0]+ '_' + selected_interface[1].replaceAll("Address","") + ": " + dictofinterfaces[selected_interface[0]][selected_interface[1]] );
 }
@@ -159,14 +161,30 @@ class AllIPAddressIndicator extends PanelMenu.Button{
         this._updateLabel();
     }
 
-    _toggleView(){
-      //console.log("Updating label for all-ip extension")
+    _toggleView(event){
+      if (event.get_button() !== 1) {
+        return Clutter.EVENT_PROPAGATE;
+      }
       selected_interface[0] = selected_interface[1].includes('IPv4Address') ? (('IPv6Address' in dictofinterfaces[selected_interface[0]]) ? selected_interface[0]:listofinterfaces[(listofinterfaces.indexOf(selected_interface[0])+1==listofinterfaces.length) ? 0 : listofinterfaces.indexOf(selected_interface[0])+1]) : listofinterfaces[(listofinterfaces.indexOf(selected_interface[0])+1==listofinterfaces.length) ? 0 : listofinterfaces.indexOf(selected_interface[0])+1];
       selected_interface[1] = ('IPv4Address' in dictofinterfaces[selected_interface[0]]) ? (selected_interface[1].includes('IPv4Address') ? (('IPv6Address' in dictofinterfaces[selected_interface[0]]) ? (this.buttonText.get_text().includes(dictofinterfaces[selected_interface[0]][selected_interface[1]]) ? 'IPv6Address':'IPv4Address'):'IPv4Address') : 'IPv4Address') : 'IPv6Address';
-
       this.buttonText.set_text( selected_interface[0]+ '_' + selected_interface[1].replaceAll("Address","") + ": " + dictofinterfaces[selected_interface[0]][selected_interface[1]] );
-      // enable this if you feel like you need to force updates, otherwise this is not necessary anymore
-      //this._updateLabel();
+      
+      return Clutter.EVENT_STOP;
+    }
+    
+    _copyToClipboard(event) {
+        // Check if it's a right-click (button 3)
+        if (event.get_button() !== 3) {
+            return Clutter.EVENT_PROPAGATE;
+        }
+
+        const clipboard = St.Clipboard.get_default();
+        const ipAddress = dictofinterfaces[selected_interface[0]][selected_interface[1]];
+        clipboard.set_text(St.ClipboardType.CLIPBOARD, ipAddress);
+
+        Main.notify('IP Address Copied', `Copied ${ipAddress} to clipboard`);
+
+        return Clutter.EVENT_STOP;
     }
 
     _updateLabel(){
@@ -177,7 +195,6 @@ class AllIPAddressIndicator extends PanelMenu.Button{
                 this._timeout = null;
         }
         this._timeout = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, refreshTime, () => {this._updateLabel();});
-        // Show the right format. 0 = WAN, 4 = IPv4, 6=IPv6
         // update asynchronously every 5 seconds
         _update_interface_list(this).catch((e) => {
             logError(e);
@@ -206,7 +223,16 @@ export default class AllIPAddressExtension extends Extension {
     enable() {
         this._indicator = new AllIPAddressIndicator();
         Main.panel.addToStatusArea('all-ip-addresses-indicator', this._indicator);
-        this._indicator.connect('button-press-event', () => this._indicator._toggleView());
+        this._indicator.connect('button-press-event', (actor, event) => {
+            if (event.get_button() === 1) {
+              // on left-click toggle between IPs
+                return this._indicator._toggleView(event);
+            } else if (event.get_button() === 3) {
+              // on right-click copy current IP to clipboard
+                return this._indicator._copyToClipboard(event);
+            }
+            return Clutter.EVENT_PROPAGATE;
+        });
     }
 
     disable() {
