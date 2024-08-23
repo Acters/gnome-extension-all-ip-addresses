@@ -1,17 +1,23 @@
 # gnome-extension-all-ip-addresses
 
-This is the code behind the GNOME Shell Extension called **ALL IP Addresses**, available in the GNOME Shell Extension store at https://extensions.gnome.org/extension/3994/all-ip-addresses/
+This is the code behind the GNOME Shell Extension called **ALL IP Addresses** ~~, available in the GNOME Shell Extension store at https://extensions.gnome.org/extension/3994/all-ip-addresses/~~
 
 ## Introduction
 
-This extention is based upon the lan-ip-address extention. I added the switch between LAN, WAN and IPv6 and VPN.
-This extention will only show the IP-addresses your workstation will use to communicate to the internet (IPv4 and IPv6) or your LAN. Virtual host-only interfaces (like e.g. Docker or VirtualBox interfaces) will not show.
+This extention is based upon the **ALL IP Addresses** extention. I added the dynamic switch between Device interface IPs, and WAN public IPs for both IPv4 and IPv6.
+This extention will only show the IP-addresses your workstation to per interface, and what is the public IP address that others can reach you from.
 
 ## How it works
-To get the different IP addresses, internally this extension runs a shell command to find ikterface the workstation will use to reacht an adrress in the internet.
+Uses `iproute2`'s `ip address -brief` command to get list of interfaces and their IP address.
+Uses `curl --max-time 5 -4 icanhazip.com` and `curl --max-time 5 -6 icanhazip.com` to find WAN public IP.
+Left-click will cycle through IP address and their associated interface.
+Right-click will copy to clipboard the currently displayed IP address.
 
 ## Known limitations
-In the atypical case that you are working on a LAN not connected to the Internet (such as an isolated lab), you have no route that could reach public ip-addresses, so things will not work the way this extension is currently designed.
+In an environment where `icanhazip.com` is unreachable but internet connection is fine then WAN IP will not show. This is a minor limitation.
+Requires `iproute2` package on linux to be installed, or any equivalent `ip` command.
+Will only update every 5 seconds. 
+It is possible there can be race condition, so be patient and retry.
 
 ## Credits
 This code is based upon a fork of https://github.com/Josholith/gnome-extension-lan-ip-address
