@@ -2,6 +2,7 @@
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as MessageTray from 'resource:///org/gnome/shell/ui/messageTray.js';
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
@@ -159,6 +160,9 @@ class AllIPAddressIndicator extends PanelMenu.Button{
             this.buttonText.set_text("Loading Error...");
           });
         this._updateLabel();
+
+        this._notificationSource = this.getNotificationSource()
+        this._activeNotification = null;
     }
 
     _toggleView(event){
@@ -182,8 +186,8 @@ class AllIPAddressIndicator extends PanelMenu.Button{
         const ipAddress = dictofinterfaces[selected_interface[0]][selected_interface[1]];
         clipboard.set_text(St.ClipboardType.CLIPBOARD, ipAddress);
 
-        Main.notify('IP Address Copied', `Copied ${ipAddress} to clipboard`);
-
+        this._showNotification(ipAddress);
+        
         return Clutter.EVENT_STOP;
     }
 
@@ -201,10 +205,50 @@ class AllIPAddressIndicator extends PanelMenu.Button{
             this.buttonText.set_text("Loading Error...");
           });
     }
+    
+    getNotificationSource() {
+      let notificationSource = this._notificationSource
+      if (!notificationSource) {
+        notificationSource = new MessageTray.Source({
+            title: _('IP Address Copied'),
+            icon: new Gio.ThemedIcon({name: 'dialog-information-symbolic'}),
+            iconName: 'dialog-information-symbolic',
+        });
 
-    _removeTimeout() {
-        if (this._timeout) {
-            this._timeout = null;
+        // Reset the notification source if it's destroyed
+        notificationSource.connect('destroy', _source => {
+            this._notificationSource = null;
+            this._activeNotification = null;
+        });
+        Main.messageTray.add(notificationSource);
+      }
+
+      return notificationSource;
+    }
+
+    _showNotification(ipAddress) {
+        const title = 'IP Address Copied';
+        const body = `Copied ${ipAddress} to clipboard`;
+
+        if (this._activeNotification) {
+            // Update existing notification
+            this._activeNotification.body = body;
+            // Reset notification
+            this.getNotificationSource().addNotification(this._activeNotification);
+            // Force subsequent addNotification calls to reset the Notification. 
+            // This strategy of reusing the notification and keeping it from hiding can cause a race condition that when it is hiding the notification, it can silently fail to prevent it from hiding. 
+            // This is a small issue, and not a concern because the user may not notice. This is an notification, and only to alert user of copying IP address to clipboard.
+            this._activeNotification.acknowledged = false;
+        } else {
+            // Create new notification
+            this._activeNotification = new MessageTray.Notification({
+                source: this.getNotificationSource(),
+                title: title,
+                body: body,
+                urgency: MessageTray.Urgency.NORMAL,
+            });
+            this._activeNotification.isTransient = true;
+            this.getNotificationSource().addNotification(this._activeNotification);
         }
     }
 
@@ -215,6 +259,11 @@ class AllIPAddressIndicator extends PanelMenu.Button{
         this._timeout = undefined;
 
         this.menu.removeAll();
+        
+        if (this._activeNotification) {
+            this._activeNotification.destroy();
+            this._activeNotification = null;
+        }
     }
 }
 
