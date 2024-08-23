@@ -20,4 +20,4 @@ Will only update every 5 seconds.
 It is possible there can be race condition, so be patient and retry.
 
 ## Credits
-This code is based upon a fork of https://github.com/Josholith/gnome-extension-lan-ip-address
+This code is based upon a fork of [**ALL IP Addresses** extention by Peter Havekes](https://github.com/phavekes/gnome-extension-all-ip-addresses)
